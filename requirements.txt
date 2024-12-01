@@ -1,0 +1,6 @@
+flask
+cryptography
+jwt
+flask-limiter
+flask-cors
+requests
