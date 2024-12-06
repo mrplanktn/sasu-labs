@@ -1,0 +1,17 @@
+[2024-12-04 16:15:58 +0000] [57537] [INFO] Starting gunicorn 23.0.0
+[2024-12-04 16:15:58 +0000] [57537] [INFO] Listening at: http://127.0.0.1:8000 (57537)
+[2024-12-04 16:15:58 +0000] [57537] [INFO] Using worker: sync
+[2024-12-04 16:15:58 +0000] [57549] [INFO] Booting worker with pid: 57549
+[2024-12-04 16:15:58 +0000] [57550] [INFO] Booting worker with pid: 57550
+[2024-12-04 16:15:58 +0000] [57551] [INFO] Booting worker with pid: 57551
+[2024-12-04 16:15:58 +0000] [57552] [INFO] Booting worker with pid: 57552
+[2024-12-04 17:25:38 +0000] [57550] [INFO] Worker exiting (pid: 57550)
+[2024-12-04 17:25:38 +0000] [57537] [INFO] Handling signal: term
+SECRET_KEY: mrplanktn@gmail.com11
+[2024-12-04 17:25:38 +0000] [57549] [INFO] Worker exiting (pid: 57549)
+SECRET_KEY: mrplanktn@gmail.com11
+[2024-12-04 17:25:38 +0000] [57551] [INFO] Worker exiting (pid: 57551)
+SECRET_KEY: mrplanktn@gmail.com11
+[2024-12-04 17:25:38 +0000] [57552] [INFO] Worker exiting (pid: 57552)
+SECRET_KEY: mrplanktn@gmail.com11
+[2024-12-04 17:25:39 +0000] [57537] [INFO] Shutting down: Master

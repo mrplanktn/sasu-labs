@@ -4,3 +4,4 @@ jwt
 flask-limiter
 flask-cors
 requests
+scikit-learn
