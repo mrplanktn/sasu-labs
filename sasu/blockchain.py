@@ -15,6 +15,7 @@ from redis import Redis
 from dotenv import load_dotenv
 from marshmallow import Schema, fields, ValidationError
 from cryptography.fernet import Fernet, InvalidToken
+from flask_restx import Api
 import binascii
 
 # Setup logging
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 # Flask setup
 app = Flask(__name__)
+
+# Flask-RESTx API
+api = Api(app, version='1.0', title='Blockchain API',
+          description='SASU Blockchain API')
 
 # Load environment variables
 load_dotenv()
@@ -35,14 +40,23 @@ if not SECRET_KEY or not ENCRYPTION_KEY:
 # Encryption setup
 cipher = Fernet(ENCRYPTION_KEY)
 
-# Redis and Flask-Limiter configuration
-redis = Redis(
-    host='localhost',
-    port=6379,
-    db=0,
-    password=os.getenv('REDIS_PASSWORD'),
-    ssl=True
-)
+# Create Redis connection
+def create_redis_connection():
+    try:
+        client = Redis(
+            host='localhost',
+            port=6379,
+            db=0,
+            password=os.getenv('REDIS_PASSWORD'),  # Remove this line if no password is used
+            ssl=False  # Set to True if connecting to an SSL-protected Redis
+        )
+        client.ping()  # Will raise an error if Redis is not reachable
+        return client
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis: {e}")
+        raise
+
+redis = create_redis_connection()
 limiter = Limiter(get_remote_address, app=app, storage_uri="redis://localhost:6379")
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
@@ -69,7 +83,6 @@ class Blockchain:
         self.current_transactions = []
         self.difficulty = 4
         self.nodes = set()
-        self.completed_transactions = set()
         self.lock = threading.Lock()
         self.load_chain()
         self.miner_wallet_file = "miner_wallet.json"
@@ -91,6 +104,21 @@ class Blockchain:
         else:
             self.chain = []
 
+    def new_transaction(self, sender, recipient, amount):
+        # Validasi jumlah harus positif
+        if amount <= 0:
+            raise ValueError("Amount must be greater than 0")
+
+        # Buat transaksi baru
+        transaction = {
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount
+        }
+        self.current_transactions.append(transaction)
+
+        return len(self.chain) + 1
+
     def new_block(self, proof, previous_hash=None):
         block_reward = 100
         reward_transaction = {
@@ -110,7 +138,6 @@ class Blockchain:
         self.current_transactions = []
         self.chain.append(block)
         self.save_chain()
-        self.adjust_difficulty()
         self.broadcast_block(block)
         return block
 
@@ -157,12 +184,51 @@ class Blockchain:
             previous_block = chain[i - 1]
             current_block = chain[i]
             if current_block['previous_hash'] != self.hash(previous_block):
+                logger.error(f"Invalid previous hash at block {i}")
                 return False
             if not self.valid_proof(previous_block['proof'], current_block['proof']):
+                logger.error(f"Invalid proof of work at block {i}")
                 return False
+            for transaction in current_block['transactions']:
+                if transaction['amount'] <= 0:
+                    logger.error(f"Invalid transaction amount at block {i}: {transaction}")
+                    return False  # Tambahkan validasi transaksi    
         return True
 
+    def resolve_conflicts(self):
+        longest_chain = None
+        max_length = len(self.chain)
+
+        for node in self.nodes:
+            if validators.url(node):
+                try:
+                    response = requests.get(f"{node}/api/chain")
+                    if response.status_code == 200:
+                        length = response.json()['length']
+                        chain = response.json()['chain']
+
+                        if length > max_length and self.is_valid_chain(chain):
+                            max_length = length
+                            longest_chain = chain
+                except Exception as e:
+                    logger.error(f"Error fetching chain from {node}: {str(e)}")
+
+        if longest_chain:
+            self.chain = longest_chain
+            self.save_chain()
+            return True
+        return False    
+
 blockchain = Blockchain()
+
+@app.route('/api/chain', methods=['GET'])
+def get_chain():
+    response = {
+        'chain': blockchain.chain,
+        'length': len(blockchain.chain)
+    }
+    return jsonify(response), 200
+
 
 @app.route('/api/transaction/new', methods=['POST'])
 @auth.login_required
@@ -196,9 +262,42 @@ def register_node():
     blockchain.nodes.update(nodes)
     return jsonify({'message': 'Nodes added successfully'}), 201
 
+@app.route('/api/mine', methods=['GET'])
+@auth.login_required
+@limiter.limit("2 per minute")
+def mine():
+    with blockchain.lock:
+        last_block = blockchain.chain[-1] if blockchain.chain else None
+        last_proof = last_block['proof'] if last_block else 0
+        proof = blockchain.proof_of_work(last_proof)
+
+        # Create a new block
+        previous_hash = blockchain.hash(last_block) if last_block else None
+        block = blockchain.new_block(proof, previous_hash)
+
+    return jsonify({
+        'message': 'New block mined',
+        'block': block
+    }), 200
+
+@app.route('/api/validate', methods=['GET'])
+def validate_chain():
+    is_valid = blockchain.is_valid_chain(blockchain.chain)
+    return jsonify({'valid': is_valid}), 200
+
+@app.route('/api/consensus', methods=['GET'])
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+    if replaced:
+        message = "The chain was replaced with a longer valid chain."
+    else:
+        message = "The chain is already the longest valid chain."
+    
+    return jsonify({'message': message}), 200
+
 @app.route('/')
 def home():
     return 'Welcome to the Secure Blockchain API!'
 
 if __name__ == '__main__':
-    app.run(ssl_context=('path/to/cert.pem', 'path/to/key.pem'), debug=True)
+    app.run(debug=True)
